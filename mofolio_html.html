@@ -5,25 +5,35 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <meta name="theme-color" content="#185FA5"/>
 <title>MoFolio</title>
-<link rel="manifest" href="manifest.json"/>
 <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f4f8;min-height:100vh}
-input,select{outline:none;width:100%}
+input,select,textarea{outline:none;width:100%;font-family:inherit}
 button{cursor:pointer;font-family:inherit}
-::-webkit-scrollbar{width:4px}
-::-webkit-scrollbar-thumb{background:#b0c4de;border-radius:4px}
+input[type=range]{accent-color:#185FA5}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useEffect,useMemo}=React;
+const {useState,useEffect,useMemo,useRef}=React;
+
+const EMAILJS_SERVICE_ID  = "service_xkjncnn";
+const EMAILJS_TEMPLATE_ID = "template_bgbetpg";
+const EMAILJS_PUBLIC_KEY  = "Wb5IBL224ffdAFx0B";
+const OWNER_EMAIL         = "mohanhypo1801@gmail.com";
+
 const COLORS={income:"#1D9E75",expense:"#D85A30",savings:"#378ADD",goal:"#7F77DD"};
-const CATEGORIES={income:["Salary","Business","Freelance","Rental","Investment","Other"],expense:["Food","Transport","Housing","Healthcare","Education","Entertainment","Shopping","Utilities","EMI/Loan","Other"]};
+const PIE_COLORS=["#378ADD","#D85A30","#BA7517","#7F77DD","#1D9E75","#993C1D","#534AB7","#0F6E56","#9ca3af","#185FA5"];
+const CATEGORIES={
+  income:["Salary","Business","Freelance","Rental","Investment","Other"],
+  expense:["Food","Transport","Housing","Healthcare","Education","Entertainment","Shopping","Utilities","EMI/Loan","Other"]
+};
 const INVEST_OPTIONS=[
   {name:"SIP / Mutual Fund",risk:"Medium",returns:"10-14%",horizon:"3+ years",color:"#378ADD"},
   {name:"PPF",risk:"Low",returns:"7.1%",horizon:"15 years",color:"#1D9E75"},
@@ -33,19 +43,360 @@ const INVEST_OPTIONS=[
   {name:"NPS",risk:"Medium",returns:"9-12%",horizon:"Till retirement",color:"#0F6E56"},
   {name:"Real Estate",risk:"Medium",returns:"8-12%",horizon:"5+ years",color:"#993C1D"},
 ];
-function fmt(n){return"₹"+Math.round(n).toLocaleString("en-IN")}
-function pct(a,b){return b===0?0:Math.round((a/b)*100)}
-const initState={members:[{id:1,name:"Me",relation:"Self"}],transactions:[],goals:[]};
 
-function load(){try{const d=localStorage.getItem("mofolio");return d?JSON.parse(d):initState;}catch{return initState;}}
-function save(s){try{localStorage.setItem("mofolio",JSON.stringify(s));}catch{}}
+const fmt=(n)=>"₹"+Math.round(n).toLocaleString("en-IN");
+const fmtC=(n)=>{if(n>=10000000)return"₹"+(n/10000000).toFixed(2)+"Cr";if(n>=100000)return"₹"+(n/100000).toFixed(2)+"L";return fmt(n);};
+const pct=(a,b)=>b===0?0:Math.round((a/b)*100);
+const iStyle={padding:"8px",borderRadius:8,border:"0.5px solid #dde3ea",fontSize:14,background:"#f8fafc",color:"#1a1a1a",width:"100%"};
+const initState={members:[{id:1,name:"Me",relation:"Self"}],transactions:[],goals:[],feedbacks:[]};
+function load(){try{const d=localStorage.getItem("mofolio3");return d?{...initState,...JSON.parse(d)}:initState;}catch{return initState;}}
+function save(s){try{localStorage.setItem("mofolio3",JSON.stringify(s));}catch{}}
+
+// ── RESULT CARD ──
+function ResultRow({label,value,highlight}){
+  return <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"0.5px solid #f0f4f8"}}>
+    <span style={{fontSize:13,color:"#6b7280"}}>{label}</span>
+    <span style={{fontSize:highlight?18:14,fontWeight:highlight?500:400,color:highlight?"#185FA5":"#1a1a1a"}}>{value}</span>
+  </div>;
+}
+
+// ── SLIDER ROW ──
+function SliderRow({label,value,min,max,step,onChange,display}){
+  return <div style={{marginBottom:14}}>
+    <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
+      <span style={{color:"#6b7280"}}>{label}</span>
+      <span style={{fontWeight:500,color:"#185FA5"}}>{display||value}</span>
+    </div>
+    <input type="range" min={min} max={max} step={step} value={value} onChange={e=>onChange(Number(e.target.value))} style={{width:"100%"}}/>
+  </div>;
+}
+
+// ── BAR CHART ──
+function BarChart({invested,returns,title}){
+  const ref=useRef();const chartRef=useRef();
+  useEffect(()=>{
+    if(!ref.current)return;
+    if(chartRef.current)chartRef.current.destroy();
+    chartRef.current=new Chart(ref.current,{
+      type:"bar",
+      data:{
+        labels:["Amount Invested","Returns Earned","Total Value"],
+        datasets:[{data:[invested,returns,invested+returns],backgroundColor:["#378ADD","#1D9E75","#185FA5"],borderRadius:6,borderSkipped:false}]
+      },
+      options:{responsive:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>fmtC(c.raw)}}},scales:{y:{ticks:{callback:v=>fmtC(v)},grid:{color:"#f0f4f8"}},x:{grid:{display:false}}}}
+    });
+    return()=>{if(chartRef.current)chartRef.current.destroy();};
+  },[invested,returns]);
+  return <div style={{marginTop:16}}>
+    {title&&<div style={{fontSize:13,fontWeight:500,color:"#6b7280",marginBottom:8}}>{title}</div>}
+    <canvas ref={ref} width={300} height={180}/>
+  </div>;
+}
+
+// ── SIP CALCULATOR ──
+function SIPCalc(){
+  const[monthly,setMonthly]=useState(5000);
+  const[rate,setRate]=useState(12);
+  const[years,setYears]=useState(10);
+  const[stepUp,setStepUp]=useState(0);
+
+  const result=useMemo(()=>{
+    const r=rate/100/12;
+    if(stepUp===0){
+      const n=years*12;
+      const fv=monthly*((Math.pow(1+r,n)-1)/r)*(1+r);
+      return{fv,invested:monthly*n,returns:fv-monthly*n};
+    } else {
+      let fv=0,invested=0,m=monthly;
+      for(let y=0;y<years;y++){
+        for(let mo=0;mo<12;mo++){fv=(fv+m)*(1+r);invested+=m;}
+        m=m*(1+stepUp/100);
+      }
+      return{fv,invested,returns:fv-invested};
+    }
+  },[monthly,rate,years,stepUp]);
+
+  return <div>
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+      <div style={{fontWeight:500,fontSize:15,marginBottom:16,color:"#185FA5"}}>SIP Calculator</div>
+      <SliderRow label="Monthly Investment" value={monthly} min={500} max={100000} step={500} onChange={setMonthly} display={fmt(monthly)}/>
+      <SliderRow label="Expected Annual Return" value={rate} min={6} max={30} step={0.5} onChange={setRate} display={`${rate}% p.a.`}/>
+      <SliderRow label="Investment Duration" value={years} min={1} max={40} step={1} onChange={setYears} display={`${years} years`}/>
+      <SliderRow label="Annual Step-Up %" value={stepUp} min={0} max={25} step={1} onChange={setStepUp} display={stepUp===0?"None":`${stepUp}% per year`}/>
+    </div>
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem"}}>
+      <div style={{fontWeight:500,marginBottom:4}}>Results</div>
+      <ResultRow label="Amount Invested" value={fmtC(result.invested)}/>
+      <ResultRow label="Returns Earned" value={fmtC(result.returns)}/>
+      <ResultRow label="Total Value" value={fmtC(result.fv)} highlight/>
+      <ResultRow label="Wealth Gained" value={`${Math.round((result.returns/result.invested)*100)}%`}/>
+      <BarChart invested={result.invested} returns={result.returns} title="Investment growth breakdown"/>
+      <div style={{marginTop:12,background:"#E6F1FB",borderRadius:8,padding:"10px 12px",fontSize:12,color:"#0C447C",lineHeight:1.6}}>
+        Investing {fmt(monthly)}/month at {rate}% for {years} years{stepUp>0?` with ${stepUp}% annual step-up`:""} builds a corpus of <strong>{fmtC(result.fv)}</strong>. Your money grows <strong>{Math.round(result.fv/result.invested)}x</strong>.
+      </div>
+    </div>
+  </div>;
+}
+
+// ── PPF CALCULATOR ──
+function PPFCalc(){
+  const[yearly,setYearly]=useState(150000);
+  const[years,setYears]=useState(15);
+  const PPF_RATE=7.1;
+
+  const result=useMemo(()=>{
+    const r=PPF_RATE/100;
+    let bal=0,invested=0;
+    const yearlyData=[];
+    for(let y=1;y<=years;y++){
+      bal=(bal+yearly)*(1+r);
+      invested+=yearly;
+      if(y<=years)yearlyData.push({y,bal,invested});
+    }
+    // Extensions (5-yr blocks)
+    const ext5=[];
+    let extBal=bal,extInv=invested;
+    for(let e=1;e<=2;e++){
+      for(let y=1;y<=5;y++){extBal=(extBal+yearly)*(1+r);extInv+=yearly;}
+      ext5.push({label:`+${e*5} yrs (${years+e*5} yrs)`,bal:extBal,invested:extInv});
+    }
+    return{bal,invested,returns:bal-invested,yearlyData,ext5};
+  },[yearly,years]);
+
+  const ref=useRef();const chartRef=useRef();
+  useEffect(()=>{
+    if(!ref.current)return;
+    if(chartRef.current)chartRef.current.destroy();
+    const labels=result.yearlyData.map(d=>`Yr ${d.y}`);
+    chartRef.current=new Chart(ref.current,{
+      type:"bar",
+      data:{
+        labels,
+        datasets:[
+          {label:"Invested",data:result.yearlyData.map(d=>d.invested),backgroundColor:"#B5D4F4",borderRadius:3,stack:"s"},
+          {label:"Interest",data:result.yearlyData.map(d=>d.bal-d.invested),backgroundColor:"#1D9E75",borderRadius:3,stack:"s"},
+        ]
+      },
+      options:{responsive:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${fmtC(c.raw)}`}}},scales:{y:{stacked:true,ticks:{callback:v=>fmtC(v)},grid:{color:"#f0f4f8"}},x:{stacked:true,grid:{display:false},ticks:{maxRotation:45,autoSkip:true,maxTicksLimit:8}}}}
+    });
+    return()=>{if(chartRef.current)chartRef.current.destroy();};
+  },[result.yearlyData]);
+
+  return <div>
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+      <div style={{fontWeight:500,fontSize:15,marginBottom:4,color:"#185FA5"}}>PPF Calculator</div>
+      <div style={{fontSize:12,color:"#6b7280",marginBottom:16}}>Current PPF rate: 7.1% p.a. (compounded annually) · Tax-free returns under EEE</div>
+      <SliderRow label="Yearly Investment" value={yearly} min={500} max={150000} step={500} onChange={setYearly} display={fmt(yearly)}/>
+      <div style={{fontSize:11,color:yearly>=150000?"#D85A30":"#9ca3af",marginTop:-10,marginBottom:14}}>Max allowed: ₹1,50,000/year {yearly>=150000?"(limit reached)":""}</div>
+      <SliderRow label="Investment Duration" value={years} min={15} max={50} step={5} onChange={setYears} display={`${years} years`}/>
+      <div style={{fontSize:11,color:"#9ca3af",marginTop:-10,marginBottom:4}}>Minimum lock-in: 15 years. Extendable in 5-yr blocks.</div>
+    </div>
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+      <div style={{fontWeight:500,marginBottom:4}}>Results at {years} years</div>
+      <ResultRow label="Total Invested" value={fmtC(result.invested)}/>
+      <ResultRow label="Interest Earned" value={fmtC(result.returns)}/>
+      <ResultRow label="Maturity Amount" value={fmtC(result.bal)} highlight/>
+      <ResultRow label="Tax saved (30% slab)" value={fmtC(result.invested*0.3)}/>
+      <div style={{marginTop:12,overflowX:"auto"}}><canvas ref={ref} width={300} height={180}/></div>
+    </div>
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem"}}>
+      <div style={{fontWeight:500,marginBottom:10}}>Extension scenarios</div>
+      {result.ext5.map((e,i)=><div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:"0.5px solid #f0f4f8"}}>
+        <span style={{fontSize:13,color:"#6b7280"}}>{e.label}</span>
+        <span style={{fontWeight:500,color:"#185FA5"}}>{fmtC(e.bal)}</span>
+      </div>)}
+      <div style={{marginTop:12,background:"#E1F5EE",borderRadius:8,padding:"10px 12px",fontSize:12,color:"#085041",lineHeight:1.6}}>
+        PPF is 100% tax-free (EEE status) — exempt at investment, growth, and maturity. Ideal for conservative long-term corpus building.
+      </div>
+    </div>
+  </div>;
+}
+
+// ── CORPUS & INVESTMENT CALCULATOR ──
+function CorpusCalc(){
+  const[mode,setMode]=useState("build"); // build=how much to invest | target=what corpus i get
+  const[targetCorpus,setTargetCorpus]=useState(10000000);
+  const[monthly,setMonthly]=useState(10000);
+  const[rate,setRate]=useState(12);
+  const[years,setYears]=useState(20);
+  const[inflation,setInflation]=useState(6);
+
+  const build=useMemo(()=>{
+    const r=rate/100/12;
+    const n=years*12;
+    const fv=monthly*((Math.pow(1+r,n)-1)/r)*(1+r);
+    const realRate=(((1+rate/100)/(1+inflation/100))-1)*100;
+    const realFv=fv/Math.pow(1+inflation/100,years);
+    // year by year
+    const yearlyRows=[];
+    for(let y=1;y<=years;y++){
+      const ny=y*12;
+      const nomFv=monthly*((Math.pow(1+r,ny)-1)/r)*(1+r);
+      const inv=monthly*ny;
+      const realV=nomFv/Math.pow(1+inflation/100,y);
+      yearlyRows.push({y,inv,nomFv,realV,gain:nomFv-inv});
+    }
+    return{fv,realFv,invested:monthly*n,returns:fv-monthly*n,realRate,yearlyRows};
+  },[monthly,rate,years,inflation]);
+
+  const target=useMemo(()=>{
+    const r=rate/100/12;
+    const n=years*12;
+    const needed=targetCorpus/((((Math.pow(1+r,n)-1)/r)*(1+r)));
+    const realFv=targetCorpus/Math.pow(1+inflation/100,years);
+    // year by year
+    const yearlyRows=[];
+    for(let y=1;y<=years;y++){
+      const ny=y*12;
+      const nomFv=needed*((Math.pow(1+r,ny)-1)/r)*(1+r);
+      const inv=needed*ny;
+      const realV=nomFv/Math.pow(1+inflation/100,y);
+      yearlyRows.push({y,inv,nomFv,realV,gain:nomFv-inv});
+    }
+    return{needed,invested:needed*n,returns:targetCorpus-needed*n,realFv,yearlyRows};
+  },[targetCorpus,rate,years,inflation]);
+
+  const milestones=[
+    {label:"25L",val:2500000},{label:"50L",val:5000000},{label:"1 Cr",val:10000000},
+    {label:"2 Cr",val:20000000},{label:"5 Cr",val:50000000}
+  ];
+
+  return <div>
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+      <div style={{fontWeight:500,fontSize:15,marginBottom:12,color:"#185FA5"}}>Corpus & Investment Calculator</div>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        <button onClick={()=>setMode("build")} style={{flex:1,padding:"8px",border:"0.5px solid",borderRadius:8,fontWeight:500,fontSize:13,background:mode==="build"?"#185FA5":"transparent",color:mode==="build"?"#fff":"#6b7280",borderColor:mode==="build"?"#185FA5":"#dde3ea"}}>I want to invest monthly →</button>
+        <button onClick={()=>setMode("target")} style={{flex:1,padding:"8px",border:"0.5px solid",borderRadius:8,fontWeight:500,fontSize:13,background:mode==="target"?"#185FA5":"transparent",color:mode==="target"?"#fff":"#6b7280",borderColor:mode==="target"?"#185FA5":"#dde3ea"}}>I have a target corpus →</button>
+      </div>
+
+      {mode==="build"?<>
+        <SliderRow label="Monthly Investment" value={monthly} min={500} max={200000} step={500} onChange={setMonthly} display={fmt(monthly)}/>
+      </>:<>
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:13,color:"#6b7280",marginBottom:6}}>Target corpus</div>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+            {milestones.map(m=><button key={m.val} onClick={()=>setTargetCorpus(m.val)} style={{padding:"4px 12px",borderRadius:20,border:"0.5px solid",fontSize:12,background:targetCorpus===m.val?"#185FA5":"transparent",color:targetCorpus===m.val?"#fff":"#6b7280",borderColor:targetCorpus===m.val?"#185FA5":"#dde3ea"}}>{m.label}</button>)}
+          </div>
+          <SliderRow label="" value={targetCorpus} min={500000} max={100000000} step={500000} onChange={setTargetCorpus} display={fmtC(targetCorpus)}/>
+        </div>
+      </>}
+
+      <SliderRow label="Expected Annual Return" value={rate} min={6} max={30} step={0.5} onChange={setRate} display={`${rate}% p.a.`}/>
+      <SliderRow label="Investment Duration" value={years} min={1} max={40} step={1} onChange={setYears} display={`${years} years`}/>
+      <SliderRow label="Expected Inflation" value={inflation} min={3} max={10} step={0.5} onChange={setInflation} display={`${inflation}% p.a.`}/>
+    </div>
+
+    {mode==="build"?<div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+      <div style={{fontWeight:500,marginBottom:4}}>Your corpus projection</div>
+      <ResultRow label="Total Invested" value={fmtC(build.invested)}/>
+      <ResultRow label="Returns Earned" value={fmtC(build.returns)}/>
+      <ResultRow label="Nominal Corpus" value={fmtC(build.fv)} highlight/>
+      <ResultRow label={`Real Value (today's ₹ after ${inflation}% inflation)`} value={fmtC(build.realFv)}/>
+      <ResultRow label="Real Rate of Return" value={`${build.realRate.toFixed(1)}% p.a.`}/>
+      <BarChart invested={build.invested} returns={build.returns} title="Corpus breakdown"/>
+    </div>:
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+      <div style={{fontWeight:500,marginBottom:4}}>How much to invest monthly?</div>
+      <ResultRow label="Monthly SIP Required" value={fmt(target.needed)} highlight/>
+      <ResultRow label="Total You'll Invest" value={fmtC(target.invested)}/>
+      <ResultRow label="Returns Earned" value={fmtC(Math.max(target.returns,0))}/>
+      <ResultRow label="Target Corpus" value={fmtC(targetCorpus)}/>
+      <ResultRow label={`Real Value (today's ₹)`} value={fmtC(target.realFv)}/>
+      <div style={{marginTop:12,background:"#FAEEDA",borderRadius:8,padding:"10px 12px",fontSize:12,color:"#412402",lineHeight:1.6}}>
+        To reach <strong>{fmtC(targetCorpus)}</strong> in {years} years at {rate}% return, you need to invest <strong>{fmt(target.needed)}/month</strong>. In today's money (after {inflation}% inflation), this corpus equals <strong>{fmtC(target.realFv)}</strong>.
+      </div>
+    </div>}
+
+    {/* Year-by-year table */}
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+      <div style={{fontWeight:500,marginBottom:10}}>Year-by-year breakdown</div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+          <thead>
+            <tr style={{background:"#f0f4f8"}}>
+              {["Year","Invested","Nominal Value","Inflation-adj. Value","Gain"].map(h=><th key={h} style={{padding:"7px 8px",textAlign:"right",color:"#6b7280",fontWeight:500,whiteSpace:"nowrap",borderBottom:"0.5px solid #dde3ea"}}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {(mode==="build"?build:target).yearlyRows.map((row,i)=>(
+              <tr key={row.y} style={{background:i%2===0?"#fff":"#fafafa"}}>
+                <td style={{padding:"6px 8px",textAlign:"right",color:"#374151",fontWeight:500}}>Yr {row.y}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:"#6b7280"}}>{fmtC(row.inv)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:"#185FA5",fontWeight:500}}>{fmtC(row.nomFv)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:"#D85A30"}}>{fmtC(row.realV)}</td>
+                <td style={{padding:"6px 8px",textAlign:"right",color:"#1D9E75"}}>{fmtC(row.gain)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{display:"flex",gap:16,marginTop:10,flexWrap:"wrap"}}>
+        {[[COLORS.savings,"Nominal Value (future ₹)"],[COLORS.expense,"Real Value (today's ₹ after inflation)"],[COLORS.income,"Gain (returns earned)"]].map(([c,l])=><div key={l} style={{display:"flex",gap:6,alignItems:"center"}}><div style={{width:10,height:10,borderRadius:2,background:c,flexShrink:0}}/><span style={{fontSize:11,color:"#6b7280"}}>{l}</span></div>)}
+      </div>
+    </div>
+
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem"}}>
+      <div style={{fontWeight:500,marginBottom:10}}>Corpus milestones</div>
+      {milestones.map(m=>{
+        const r=rate/100/12;
+        const needed=m.val/((((Math.pow(1+r,years*12)-1)/r)*(1+r)));
+        return <div key={m.val} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"0.5px solid #f0f4f8"}}>
+          <span style={{fontSize:13,color:"#374151",fontWeight:500}}>{m.label} corpus</span>
+          <span style={{fontSize:13,color:"#185FA5"}}>{fmt(needed)}/month</span>
+        </div>;
+      })}
+      <div style={{fontSize:11,color:"#9ca3af",marginTop:8}}>Based on {rate}% return over {years} years</div>
+    </div>
+  </div>;
+}
+
+// ── PIE CHART ──
+function PieChart({data,labels,colors,size=180}){
+  const ref=useRef();const chartRef=useRef();
+  useEffect(()=>{
+    if(!ref.current)return;
+    if(chartRef.current)chartRef.current.destroy();
+    chartRef.current=new Chart(ref.current,{
+      type:"doughnut",
+      data:{labels,datasets:[{data,backgroundColor:colors,borderWidth:2,borderColor:"#fff",hoverOffset:4}]},
+      options:{responsive:false,cutout:"62%",plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>`${ctx.label}: ${fmt(ctx.raw)}`}}}}
+    });
+    return()=>{if(chartRef.current)chartRef.current.destroy();};
+  },[data.join(",")]);
+  return <canvas ref={ref} width={size} height={size}/>;
+}
+
+// ── SEVERITY BANNER ──
+function SeverityBanner({income,expense}){
+  if(income===0&&expense===0)return null;
+  const ratio=income===0?999:expense/income;
+  let level,bg,border,textColor,icon,msg,suggestions;
+  if(ratio<=0.5){level="Excellent";bg="#E1F5EE";border="#1D9E75";textColor="#085041";icon="✓";msg="You're saving over 50% of income. Outstanding financial health!";suggestions=["Increase SIP contributions to accelerate wealth creation.","Explore NPS for additional tax benefits under 80CCD(1B).","Consider direct equity for surplus to beat inflation long-term."];}
+  else if(ratio<=0.7){level="Healthy";bg="#E6F1FB";border="#378ADD";textColor="#0C447C";icon="↑";msg="Expenses are 50–70% of income. Good savings buffer.";suggestions=["Maintain a 6-month emergency fund in a liquid fund or FD.","Increase SIP by 10% annually (step-up SIP).","Review subscriptions for small savings opportunities."];}
+  else if(ratio<=0.9){level="Caution";bg="#FAEEDA";border="#BA7517";textColor="#412402";icon="!";msg="Expenses are 70–90% of income. Savings are thin.";suggestions=["Cap top 2 expense categories with a monthly limit.","Switch to recurring deposits for disciplined saving.","Avoid new EMIs or revolving credit card debt.","Explore side income — freelancing or rental income."];}
+  else if(ratio<=1){level="Warning";bg="#FAECE7";border="#D85A30";textColor="#4A1B0C";icon="⚠";msg="Expenses nearly equal income. Almost nothing is saved!";suggestions=["Apply 50-30-20 rule: 50% needs, 30% wants, 20% savings.","Pause all non-essential spending for 30 days.","Consolidate high-interest loans to reduce EMI burden.","Start a ₹500/month SIP — the habit matters more than amount."];}
+  else{level="Critical";bg="#FCEBEB";border="#A32D2D";textColor="#501313";icon="✕";msg=`Expenses exceed income by ${fmt(expense-income)}. You are in deficit!`;suggestions=["Stop all discretionary spending immediately.","List all liabilities — clear highest-interest debt first.","Liquidate low-return investments to cover deficit.","Seek additional income urgently.","Track every rupee for 30 days using this app."];}
+  return <div style={{background:bg,border:`1.5px solid ${border}`,borderRadius:12,padding:"1rem",marginBottom:"1rem"}}>
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+      <span style={{width:28,height:28,borderRadius:"50%",background:border,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:700,flexShrink:0}}>{icon}</span>
+      <span style={{fontWeight:500,fontSize:15,color:textColor}}>Financial Health: {level}</span>
+      <span style={{marginLeft:"auto",fontSize:12,color:textColor,fontWeight:500}}>{Math.round(ratio*100)}% expense ratio</span>
+    </div>
+    <div style={{fontSize:13,color:textColor,marginBottom:10,lineHeight:1.5}}>{msg}</div>
+    <div style={{fontWeight:500,fontSize:12,color:textColor,marginBottom:6}}>Suggestions based on current market:</div>
+    {suggestions.map((s,i)=><div key={i} style={{display:"flex",gap:8,alignItems:"flex-start",marginBottom:5}}>
+      <span style={{color:border,fontWeight:700,fontSize:12,marginTop:1,flexShrink:0}}>{i+1}.</span>
+      <span style={{fontSize:12,color:textColor,lineHeight:1.5}}>{s}</span>
+    </div>)}
+  </div>;
+}
 
 function StatCard({label,value,color,sub}){
   return <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",flex:1,minWidth:100}}>
     <div style={{fontSize:12,color:"#6b7280",marginBottom:6}}>{label}</div>
     <div style={{fontSize:20,fontWeight:500,color}}>{value}</div>
     {sub&&<div style={{fontSize:11,color:"#9ca3af",marginTop:4}}>{sub}</div>}
-  </div>
+  </div>;
 }
 
 function Dashboard({state,totalIncome,totalExpense,savings,setTab}){
@@ -57,73 +408,79 @@ function Dashboard({state,totalIncome,totalExpense,savings,setTab}){
   });
   const expByCategory={};
   state.transactions.filter(t=>t.type==="expense").forEach(t=>{expByCategory[t.category]=(expByCategory[t.category]||0)+t.amount;});
-  const topCats=Object.entries(expByCategory).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  const topCats=Object.entries(expByCategory).sort((a,b)=>b[1]-a[1]);
   return <div>
     <div style={{display:"flex",gap:10,flexWrap:"wrap",marginBottom:"1rem"}}>
       <StatCard label="Total Income" value={fmt(totalIncome)} color={COLORS.income}/>
       <StatCard label="Total Expenses" value={fmt(totalExpense)} color={COLORS.expense}/>
       <StatCard label="Net Savings" value={fmt(savings)} color={savings>=0?COLORS.savings:COLORS.expense} sub={`${savingsRate}% savings rate`}/>
     </div>
+    <SeverityBanner income={totalIncome} expense={totalExpense}/>
     {state.transactions.length===0?
       <div style={{textAlign:"center",padding:"2rem",color:"#6b7280",background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea"}}>
         <div style={{fontSize:16,marginBottom:8}}>No transactions yet</div>
         <button onClick={()=>setTab("transactions")} style={{background:"#185FA5",color:"#fff",border:"none",borderRadius:8,padding:"8px 20px",fontSize:14}}>Add your first transaction</button>
-      </div>:
-      <>
-        {topCats.length>0&&<div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
-          <div style={{fontWeight:500,marginBottom:12}}>Top expense categories</div>
-          {topCats.map(([cat,amt])=><div key={cat} style={{marginBottom:10}}>
-            <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
-              <span style={{color:"#6b7280"}}>{cat}</span><span style={{fontWeight:500}}>{fmt(amt)}</span>
-            </div>
-            <div style={{background:"#f0f4f8",borderRadius:4,height:6}}>
-              <div style={{width:`${pct(amt,totalExpense)}%`,height:6,borderRadius:4,background:COLORS.expense}}/>
-            </div>
-          </div>)}
-        </div>}
-        <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
-          <div style={{fontWeight:500,marginBottom:12}}>Family overview</div>
-          {byMember.map(m=><div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"0.5px solid #dde3ea"}}>
-            <div><div style={{fontWeight:500,fontSize:14}}>{m.name}</div><div style={{fontSize:12,color:"#6b7280"}}>{m.relation}</div></div>
-            <div style={{textAlign:"right"}}>
-              <div style={{fontSize:13,color:COLORS.income}}>{fmt(m.inc)} in</div>
-              <div style={{fontSize:13,color:COLORS.expense}}>{fmt(m.exp)} out</div>
-            </div>
-          </div>)}
+      </div>:<>
+      {topCats.length>0&&<div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+        <div style={{fontWeight:500,marginBottom:12}}>Expense breakdown</div>
+        <div style={{display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{flexShrink:0}}><PieChart data={topCats.map(([,v])=>v)} labels={topCats.map(([k])=>k)} colors={PIE_COLORS}/></div>
+          <div style={{flex:1,minWidth:140}}>
+            {topCats.map(([cat,amt],i)=><div key={cat} style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
+              <div style={{width:10,height:10,borderRadius:2,background:PIE_COLORS[i%PIE_COLORS.length],flexShrink:0}}/>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:12}}>
+                  <span style={{color:"#374151"}}>{cat}</span>
+                  <span style={{fontWeight:500}}>{pct(amt,totalExpense)}%</span>
+                </div>
+                <div style={{background:"#f0f4f8",borderRadius:4,height:4,marginTop:2}}>
+                  <div style={{width:`${pct(amt,totalExpense)}%`,height:4,borderRadius:4,background:PIE_COLORS[i%PIE_COLORS.length]}}/>
+                </div>
+              </div>
+            </div>)}
+          </div>
         </div>
-        {state.goals.length>0&&<div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem"}}>
-          <div style={{fontWeight:500,marginBottom:12}}>Goals snapshot</div>
-          {state.goals.slice(0,3).map(g=>{
-            const progress=pct(g.saved||0,g.target);
-            return <div key={g.id} style={{marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
-                <span style={{fontWeight:500}}>{g.name}</span>
-                <span style={{color:"#6b7280"}}>{fmt(g.saved||0)} / {fmt(g.target)}</span>
-              </div>
-              <div style={{background:"#f0f4f8",borderRadius:4,height:6}}>
-                <div style={{width:`${Math.min(progress,100)}%`,height:6,borderRadius:4,background:COLORS.goal}}/>
-              </div>
-              <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>{progress}% achieved</div>
-            </div>;
-          })}
-        </div>}
-      </>
-    }
+      </div>}
+      {totalIncome>0&&<div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+        <div style={{fontWeight:500,marginBottom:12}}>Income vs Expenses</div>
+        <div style={{display:"flex",gap:16,alignItems:"center"}}>
+          <PieChart data={[totalIncome,totalExpense]} labels={["Income","Expenses"]} colors={[COLORS.income,COLORS.expense]}/>
+          <div>
+            {[[COLORS.income,"Income",totalIncome],[COLORS.expense,"Expenses",totalExpense],[COLORS.savings,"Savings",savings]].map(([c,l,v])=><div key={l} style={{display:"flex",gap:8,alignItems:"center",marginBottom:8}}>
+              <div style={{width:10,height:10,borderRadius:2,background:c}}/>
+              <span style={{fontSize:13,color:"#374151"}}>{l}: <strong style={{color:l==="Savings"&&savings<0?COLORS.expense:c}}>{fmt(v)}</strong></span>
+            </div>)}
+          </div>
+        </div>
+      </div>}
+      <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+        <div style={{fontWeight:500,marginBottom:12}}>Family overview</div>
+        {byMember.map(m=><div key={m.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"0.5px solid #dde3ea"}}>
+          <div><div style={{fontWeight:500,fontSize:14}}>{m.name}</div><div style={{fontSize:12,color:"#6b7280"}}>{m.relation}</div></div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:13,color:COLORS.income}}>{fmt(m.inc)} in</div>
+            <div style={{fontSize:13,color:COLORS.expense}}>{fmt(m.exp)} out</div>
+          </div>
+        </div>)}
+      </div>
+      {state.goals.length>0&&<div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem"}}>
+        <div style={{fontWeight:500,marginBottom:12}}>Goals snapshot</div>
+        {state.goals.slice(0,3).map(g=>{const p=pct(g.saved||0,g.target);return <div key={g.id} style={{marginBottom:12}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}><span style={{fontWeight:500}}>{g.name}</span><span style={{color:"#6b7280"}}>{fmt(g.saved||0)} / {fmt(g.target)}</span></div>
+          <div style={{background:"#f0f4f8",borderRadius:4,height:6}}><div style={{width:`${Math.min(p,100)}%`,height:6,borderRadius:4,background:COLORS.goal}}/></div>
+          <div style={{fontSize:11,color:"#9ca3af",marginTop:2}}>{p}% achieved</div>
+        </div>;})}
+      </div>}
+    </>}
   </div>;
 }
 
 function Transactions({state,setState}){
   const[form,setForm]=useState({type:"income",amount:"",category:"",note:"",memberId:state.members[0]?.id||1,date:new Date().toISOString().split("T")[0]});
   const[filter,setFilter]=useState("all");
-  const add=()=>{
-    if(!form.amount||isNaN(form.amount))return;
-    const tx={...form,id:Date.now(),amount:parseFloat(form.amount),category:form.category||CATEGORIES[form.type][0]};
-    setState(s=>({...s,transactions:[tx,...s.transactions]}));
-    setForm(f=>({...f,amount:"",note:""}));
-  };
+  const add=()=>{if(!form.amount||isNaN(form.amount))return;const tx={...form,id:Date.now(),amount:parseFloat(form.amount),category:form.category||CATEGORIES[form.type][0]};setState(s=>({...s,transactions:[tx,...s.transactions]}));setForm(f=>({...f,amount:"",note:""}));};
   const del=(id)=>setState(s=>({...s,transactions:s.transactions.filter(t=>t.id!==id)}));
   const filtered=state.transactions.filter(t=>filter==="all"||t.type===filter);
-  const iStyle={padding:"8px",borderRadius:8,border:"0.5px solid #dde3ea",fontSize:14,background:"#f8fafc",color:"#1a1a1a",width:"100%"};
   return <div>
     <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
       <div style={{fontWeight:500,marginBottom:12}}>Add transaction</div>
@@ -132,13 +489,8 @@ function Transactions({state,setState}){
       </div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
         <input type="number" placeholder="Amount (₹)" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} style={iStyle}/>
-        <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} style={iStyle}>
-          <option value="">Category</option>
-          {CATEGORIES[form.type].map(c=><option key={c} value={c}>{c}</option>)}
-        </select>
-        <select value={form.memberId} onChange={e=>setForm(f=>({...f,memberId:parseInt(e.target.value)}))} style={iStyle}>
-          {state.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}
-        </select>
+        <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} style={iStyle}><option value="">Category</option>{CATEGORIES[form.type].map(c=><option key={c} value={c}>{c}</option>)}</select>
+        <select value={form.memberId} onChange={e=>setForm(f=>({...f,memberId:parseInt(e.target.value)}))} style={iStyle}>{state.members.map(m=><option key={m.id} value={m.id}>{m.name}</option>)}</select>
         <input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={iStyle}/>
       </div>
       <input placeholder="Note (optional)" value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))} style={{...iStyle,marginBottom:10}}/>
@@ -147,43 +499,29 @@ function Transactions({state,setState}){
     <div style={{display:"flex",gap:8,marginBottom:12}}>
       {["all","income","expense"].map(f=><button key={f} onClick={()=>setFilter(f)} style={{padding:"6px 14px",borderRadius:20,border:"0.5px solid #dde3ea",fontSize:12,fontWeight:500,background:filter===f?"#185FA5":"#fff",color:filter===f?"#fff":"#6b7280"}}>{f==="all"?"All":f==="income"?"Income":"Expenses"}</button>)}
     </div>
-    {filtered.length===0?<div style={{textAlign:"center",color:"#6b7280",padding:"2rem"}}>No transactions yet</div>:
-      filtered.map(tx=>{
-        const member=state.members.find(m=>m.id===tx.memberId);
-        return <div key={tx.id} style={{background:"#fff",borderRadius:10,border:"0.5px solid #dde3ea",padding:"0.75rem 1rem",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-          <div>
-            <div style={{fontWeight:500,fontSize:14}}>{tx.category||tx.type}</div>
-            <div style={{fontSize:12,color:"#6b7280"}}>{member?.name} · {tx.date}{tx.note?` · ${tx.note}`:""}</div>
-          </div>
-          <div style={{display:"flex",gap:10,alignItems:"center"}}>
-            <span style={{fontWeight:500,color:tx.type==="income"?COLORS.income:COLORS.expense}}>{tx.type==="income"?"+":"-"}{fmt(tx.amount)}</span>
-            <button onClick={()=>del(tx.id)} style={{background:"none",border:"none",color:"#9ca3af",fontSize:18,padding:0}}>×</button>
-          </div>
-        </div>;
-      })
-    }
+    {filtered.length===0?<div style={{textAlign:"center",color:"#6b7280",padding:"2rem"}}>No transactions yet</div>:filtered.map(tx=>{
+      const member=state.members.find(m=>m.id===tx.memberId);
+      return <div key={tx.id} style={{background:"#fff",borderRadius:10,border:"0.5px solid #dde3ea",padding:"0.75rem 1rem",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <div><div style={{fontWeight:500,fontSize:14}}>{tx.category||tx.type}</div><div style={{fontSize:12,color:"#6b7280"}}>{member?.name} · {tx.date}{tx.note?` · ${tx.note}`:""}</div></div>
+        <div style={{display:"flex",gap:10,alignItems:"center"}}>
+          <span style={{fontWeight:500,color:tx.type==="income"?COLORS.income:COLORS.expense}}>{tx.type==="income"?"+":"-"}{fmt(tx.amount)}</span>
+          <button onClick={()=>del(tx.id)} style={{background:"none",border:"none",color:"#9ca3af",fontSize:18,padding:0}}>×</button>
+        </div>
+      </div>;
+    })}
   </div>;
 }
 
 function Members({state,setState}){
   const[form,setForm]=useState({name:"",relation:""});
-  const relations=["Spouse","Child","Parent","Sibling","Other"];
-  const add=()=>{
-    if(!form.name)return;
-    setState(s=>({...s,members:[...s.members,{id:Date.now(),name:form.name,relation:form.relation||"Other"}]}));
-    setForm({name:"",relation:""});
-  };
+  const add=()=>{if(!form.name)return;setState(s=>({...s,members:[...s.members,{id:Date.now(),name:form.name,relation:form.relation||"Other"}]}));setForm({name:"",relation:""});};
   const del=(id)=>setState(s=>({...s,members:s.members.filter(m=>m.id!==id),transactions:s.transactions.filter(t=>t.memberId!==id)}));
-  const iStyle={padding:"8px",borderRadius:8,border:"0.5px solid #dde3ea",fontSize:14,background:"#f8fafc",color:"#1a1a1a",width:"100%"};
   return <div>
     <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
       <div style={{fontWeight:500,marginBottom:12}}>Add family member</div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
         <input placeholder="Name" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} style={iStyle}/>
-        <select value={form.relation} onChange={e=>setForm(f=>({...f,relation:e.target.value}))} style={iStyle}>
-          <option value="">Relation</option>
-          {relations.map(r=><option key={r} value={r}>{r}</option>)}
-        </select>
+        <select value={form.relation} onChange={e=>setForm(f=>({...f,relation:e.target.value}))} style={iStyle}><option value="">Relation</option>{["Spouse","Child","Parent","Sibling","Other"].map(r=><option key={r} value={r}>{r}</option>)}</select>
       </div>
       <button onClick={add} style={{width:"100%",background:"#185FA5",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:500}}>Add Member</button>
     </div>
@@ -199,18 +537,9 @@ function Members({state,setState}){
           {m.relation!=="Self"&&<button onClick={()=>del(m.id)} style={{background:"none",border:"none",color:"#9ca3af",fontSize:18}}>×</button>}
         </div>
         <div style={{display:"flex",gap:10,marginTop:12}}>
-          <div style={{flex:1,background:"#E1F5EE",borderRadius:8,padding:"8px 12px"}}>
-            <div style={{fontSize:11,color:"#0F6E56"}}>Income</div>
-            <div style={{fontWeight:500,color:"#085041"}}>{fmt(inc)}</div>
-          </div>
-          <div style={{flex:1,background:"#FAECE7",borderRadius:8,padding:"8px 12px"}}>
-            <div style={{fontSize:11,color:"#993C1D"}}>Expenses</div>
-            <div style={{fontWeight:500,color:"#712B13"}}>{fmt(exp)}</div>
-          </div>
-          <div style={{flex:1,background:"#E6F1FB",borderRadius:8,padding:"8px 12px"}}>
-            <div style={{fontSize:11,color:"#185FA5"}}>Savings</div>
-            <div style={{fontWeight:500,color:"#0C447C"}}>{fmt(inc-exp)}</div>
-          </div>
+          <div style={{flex:1,background:"#E1F5EE",borderRadius:8,padding:"8px 12px"}}><div style={{fontSize:11,color:"#0F6E56"}}>Income</div><div style={{fontWeight:500,color:"#085041"}}>{fmt(inc)}</div></div>
+          <div style={{flex:1,background:"#FAECE7",borderRadius:8,padding:"8px 12px"}}><div style={{fontSize:11,color:"#993C1D"}}>Expenses</div><div style={{fontWeight:500,color:"#712B13"}}>{fmt(exp)}</div></div>
+          <div style={{flex:1,background:"#E6F1FB",borderRadius:8,padding:"8px 12px"}}><div style={{fontSize:11,color:"#185FA5"}}>Savings</div><div style={{fontWeight:500,color:"#0C447C"}}>{fmt(inc-exp)}</div></div>
         </div>
       </div>;
     })}
@@ -218,16 +547,11 @@ function Members({state,setState}){
 }
 
 function Goals({state,setState,savings}){
-  const[form,setForm]=useState({name:"",target:"",saved:"",horizon:"short",years:3,note:""});
-  const add=()=>{
-    if(!form.name||!form.target)return;
-    setState(s=>({...s,goals:[...s.goals,{...form,id:Date.now(),target:parseFloat(form.target),saved:parseFloat(form.saved)||0}]}));
-    setForm({name:"",target:"",saved:"",horizon:"short",years:3,note:""});
-  };
+  const[form,setForm]=useState({name:"",target:"",saved:"",horizon:"short",years:3});
+  const add=()=>{if(!form.name||!form.target)return;setState(s=>({...s,goals:[...s.goals,{...form,id:Date.now(),target:parseFloat(form.target),saved:parseFloat(form.saved)||0}]}));setForm({name:"",target:"",saved:"",horizon:"short",years:3});};
   const del=(id)=>setState(s=>({...s,goals:s.goals.filter(g=>g.id!==id)}));
   const updateSaved=(id,val)=>setState(s=>({...s,goals:s.goals.map(g=>g.id===id?{...g,saved:parseFloat(val)||0}:g)}));
-  const monthlyNeeded=(g)=>{const rem=g.target-(g.saved||0);const months=g.years*12;return rem>0&&months>0?rem/months:0;};
-  const iStyle={padding:"8px",borderRadius:8,border:"0.5px solid #dde3ea",fontSize:14,background:"#f8fafc",color:"#1a1a1a",width:"100%"};
+  const mn=(g)=>{const rem=g.target-(g.saved||0);const months=g.years*12;return rem>0&&months>0?rem/months:0;};
   return <div>
     <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
       <div style={{fontWeight:500,marginBottom:12}}>Add a goal</div>
@@ -242,40 +566,20 @@ function Goals({state,setState,savings}){
       </div>
       <button onClick={add} style={{width:"100%",background:"#185FA5",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:500}}>Add Goal</button>
     </div>
-    {state.goals.length===0?<div style={{textAlign:"center",color:"#6b7280",padding:"2rem"}}>No goals yet. Add your first goal above!</div>:
-      state.goals.map(g=>{
-        const progress=Math.min(pct(g.saved||0,g.target),100);
-        const mn=monthlyNeeded(g);
-        const canAchieve=savings>=mn;
-        return <div key={g.id} style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:10}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
-            <div>
-              <div style={{fontWeight:500,fontSize:15}}>{g.name}</div>
-              <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:g.horizon==="short"?"#E1F5EE":"#EEEDFE",color:g.horizon==="short"?"#0F6E56":"#534AB7"}}>{g.horizon==="short"?"Short-term":"Long-term"} · {g.years} yr</span>
-            </div>
-            <button onClick={()=>del(g.id)} style={{background:"none",border:"none",color:"#9ca3af",fontSize:18}}>×</button>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}>
-            <span style={{color:"#6b7280"}}>Saved: {fmt(g.saved||0)}</span>
-            <span style={{fontWeight:500}}>Target: {fmt(g.target)}</span>
-          </div>
-          <div style={{background:"#f0f4f8",borderRadius:4,height:8,marginBottom:6}}>
-            <div style={{width:`${progress}%`,height:8,borderRadius:4,background:COLORS.goal}}/>
-          </div>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#6b7280",marginBottom:10}}>
-            <span>{progress}% complete</span>
-            <span>{fmt(Math.max(g.target-(g.saved||0),0))} remaining</span>
-          </div>
-          {mn>0&&<div style={{background:canAchieve?"#E1F5EE":"#FAECE7",borderRadius:8,padding:"8px 12px",fontSize:13}}>
-            <span style={{color:canAchieve?"#0F6E56":"#993C1D",fontWeight:500}}>{canAchieve?"On track — ":"Need more savings — "}Save {fmt(mn)}/month</span>
-          </div>}
-          <div style={{marginTop:10,display:"flex",gap:8,alignItems:"center"}}>
-            <span style={{fontSize:12,color:"#6b7280",whiteSpace:"nowrap"}}>Update saved:</span>
-            <input type="number" defaultValue={g.saved||0} onBlur={e=>updateSaved(g.id,e.target.value)} style={{flex:1,padding:"6px",borderRadius:8,border:"0.5px solid #dde3ea",fontSize:13,background:"#f8fafc",color:"#1a1a1a"}}/>
-          </div>
-        </div>;
-      })
-    }
+    {state.goals.length===0?<div style={{textAlign:"center",color:"#6b7280",padding:"2rem"}}>No goals yet. Add your first goal above!</div>:state.goals.map(g=>{
+      const p=Math.min(pct(g.saved||0,g.target),100);const m=mn(g);const ok=savings>=m;
+      return <div key={g.id} style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:10}}>
+        <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
+          <div><div style={{fontWeight:500,fontSize:15}}>{g.name}</div><span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:g.horizon==="short"?"#E1F5EE":"#EEEDFE",color:g.horizon==="short"?"#0F6E56":"#534AB7"}}>{g.horizon==="short"?"Short-term":"Long-term"} · {g.years} yr</span></div>
+          <button onClick={()=>del(g.id)} style={{background:"none",border:"none",color:"#9ca3af",fontSize:18}}>×</button>
+        </div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:6}}><span style={{color:"#6b7280"}}>Saved: {fmt(g.saved||0)}</span><span style={{fontWeight:500}}>Target: {fmt(g.target)}</span></div>
+        <div style={{background:"#f0f4f8",borderRadius:4,height:8,marginBottom:6}}><div style={{width:`${p}%`,height:8,borderRadius:4,background:COLORS.goal}}/></div>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:"#6b7280",marginBottom:10}}><span>{p}% complete</span><span>{fmt(Math.max(g.target-(g.saved||0),0))} remaining</span></div>
+        {m>0&&<div style={{background:ok?"#E1F5EE":"#FAECE7",borderRadius:8,padding:"8px 12px",fontSize:13,marginBottom:10}}><span style={{color:ok?"#0F6E56":"#993C1D",fontWeight:500}}>{ok?"On track — ":"Need more savings — "}Save {fmt(m)}/month</span></div>}
+        <div style={{display:"flex",gap:8,alignItems:"center"}}><span style={{fontSize:12,color:"#6b7280",whiteSpace:"nowrap"}}>Update saved:</span><input type="number" defaultValue={g.saved||0} onBlur={e=>updateSaved(g.id,e.target.value)} style={{flex:1,padding:"6px",borderRadius:8,border:"0.5px solid #dde3ea",fontSize:13,background:"#f8fafc",color:"#1a1a1a"}}/></div>
+      </div>;
+    })}
   </div>;
 }
 
@@ -295,21 +599,86 @@ function Invest({savings}){
       <div style={{fontSize:12,color:"#185FA5",marginTop:4}}>Start with a disciplined SIP to build wealth over time.</div>
     </div>}
     <div style={{fontWeight:500,marginBottom:10}}>Investment options</div>
-    {INVEST_OPTIONS.map(opt=>{
-      const isRec=recommended.includes(opt.name);
-      return <div key={opt.name} style={{background:"#fff",borderRadius:12,border:isRec?`1.5px solid ${opt.color}`:"0.5px solid #dde3ea",padding:"1rem",marginBottom:8}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
-          <div style={{fontWeight:500,fontSize:14}}>{opt.name}</div>
-          {isRec&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#E6F1FB",color:"#185FA5"}}>Recommended</span>}
+    {INVEST_OPTIONS.map(opt=>{const isRec=recommended.includes(opt.name);return <div key={opt.name} style={{background:"#fff",borderRadius:12,border:isRec?`1.5px solid ${opt.color}`:"0.5px solid #dde3ea",padding:"1rem",marginBottom:8}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><div style={{fontWeight:500,fontSize:14}}>{opt.name}</div>{isRec&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:"#E6F1FB",color:"#185FA5"}}>Recommended</span>}</div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{[["Risk",opt.risk],["Returns",opt.returns],["Horizon",opt.horizon]].map(([k,v])=><div key={k} style={{background:"#f0f4f8",borderRadius:6,padding:"4px 10px"}}><span style={{fontSize:11,color:"#9ca3af"}}>{k}: </span><span style={{fontSize:12,fontWeight:500,color:"#1a1a1a"}}>{v}</span></div>)}</div>
+    </div>;})}
+  </div>;
+}
+
+function StarRating({value,onChange}){
+  const[hover,setHover]=useState(0);
+  return <div style={{display:"flex",gap:6}}>{[1,2,3,4,5].map(s=><button key={s} onClick={()=>onChange(s)} onMouseEnter={()=>setHover(s)} onMouseLeave={()=>setHover(0)} style={{background:"none",border:"none",fontSize:32,cursor:"pointer",color:(hover||value)>=s?"#BA7517":"#dde3ea",padding:0,lineHeight:1}}>★</button>)}</div>;
+}
+
+function Feedback({state,setState}){
+  const[form,setForm]=useState({name:"",type:"feedback",rating:0,message:""});
+  const[status,setStatus]=useState("");
+  const[sending,setSending]=useState(false);
+  const typeLabels={feedback:"General Feedback",bug:"Bug Report",suggestion:"Suggestion"};
+  const ratingLabels=["","Poor","Fair","Good","Very Good","Excellent"];
+
+  const submit=async()=>{
+    if(!form.name.trim()||!form.message.trim()||form.rating===0){setStatus("error");return;}
+    setSending(true);
+    const date=new Date().toLocaleString("en-IN",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+    const entry={...form,id:Date.now(),date};
+    setState(s=>({...s,feedbacks:[entry,...(s.feedbacks||[])]}));
+    const configured=EMAILJS_TEMPLATE_ID!=="YOUR_TEMPLATE_ID"&&EMAILJS_PUBLIC_KEY!=="YOUR_PUBLIC_KEY";
+    if(configured){
+      try{await emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_TEMPLATE_ID,{to_email:OWNER_EMAIL,from_name:form.name,feedback_type:typeLabels[form.type],rating:`${"★".repeat(form.rating)}${"☆".repeat(5-form.rating)} (${ratingLabels[form.rating]})`,message:form.message,date},EMAILJS_PUBLIC_KEY);setStatus("success");}
+      catch(e){window.open(`mailto:${OWNER_EMAIL}?subject=${encodeURIComponent(`[MoFolio] ${typeLabels[form.type]} from ${form.name}`)}&body=${encodeURIComponent(`Name: ${form.name}\nRating: ${"★".repeat(form.rating)}\nDate: ${date}\n\n${form.message}`)}`);setStatus("success");}
+    } else {
+      window.open(`mailto:${OWNER_EMAIL}?subject=${encodeURIComponent(`[MoFolio] ${typeLabels[form.type]} from ${form.name} — ${form.rating}★`)}&body=${encodeURIComponent(`Name: ${form.name}\nType: ${typeLabels[form.type]}\nRating: ${"★".repeat(form.rating)} (${ratingLabels[form.rating]})\nDate: ${date}\n\nMessage:\n${form.message}`)}`);
+      setStatus("success");
+    }
+    setSending(false);
+    setForm({name:"",type:"feedback",rating:0,message:""});
+  };
+
+  const feedbacks=state.feedbacks||[];
+  return <div>
+    <div style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:"1rem"}}>
+      <div style={{fontWeight:500,fontSize:15,marginBottom:4}}>Share your feedback</div>
+      <div style={{fontSize:13,color:"#6b7280",marginBottom:16}}>Report bugs, share ideas, or rate your experience with MoFolio.</div>
+      <div style={{marginBottom:12}}><div style={{fontSize:12,color:"#6b7280",marginBottom:6}}>Your name</div><input placeholder="Enter your name" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} style={iStyle}/></div>
+      <div style={{marginBottom:12}}><div style={{fontSize:12,color:"#6b7280",marginBottom:6}}>Feedback type</div><div style={{display:"flex",gap:8}}>{Object.entries(typeLabels).map(([v,l])=><button key={v} onClick={()=>setForm(f=>({...f,type:v}))} style={{flex:1,padding:"7px 4px",border:"0.5px solid",borderRadius:8,fontSize:12,fontWeight:500,background:form.type===v?"#185FA5":"transparent",color:form.type===v?"#fff":"#6b7280",borderColor:form.type===v?"#185FA5":"#dde3ea"}}>{l}</button>)}</div></div>
+      <div style={{marginBottom:12}}><div style={{fontSize:12,color:"#6b7280",marginBottom:8}}>Rate your experience</div><StarRating value={form.rating} onChange={r=>setForm(f=>({...f,rating:r}))}/>{form.rating>0&&<div style={{fontSize:12,color:"#BA7517",marginTop:4,fontWeight:500}}>{ratingLabels[form.rating]}</div>}</div>
+      <div style={{marginBottom:14}}><div style={{fontSize:12,color:"#6b7280",marginBottom:6}}>Your message</div><textarea placeholder={form.type==="bug"?"Describe the bug...":form.type==="suggestion"?"Share your idea...":"Tell us what you think..."} value={form.message} onChange={e=>setForm(f=>({...f,message:e.target.value}))} style={{...iStyle,minHeight:90,resize:"vertical",padding:"10px",lineHeight:1.6}}/></div>
+      {status==="error"&&<div style={{background:"#FAECE7",borderRadius:8,padding:"8px 12px",fontSize:13,color:"#993C1D",marginBottom:12}}>Please fill in your name, a star rating, and your message.</div>}
+      {status==="success"&&<div style={{background:"#E1F5EE",borderRadius:8,padding:"8px 12px",fontSize:13,color:"#0F6E56",marginBottom:12}}>Thank you! Your feedback has been saved and sent to the developer.</div>}
+      <button onClick={submit} disabled={sending} style={{width:"100%",background:"#185FA5",color:"#fff",border:"none",borderRadius:8,padding:"10px",fontWeight:500,fontSize:14,opacity:sending?0.7:1}}>{sending?"Sending...":"Submit Feedback"}</button>
+      <div style={{fontSize:11,color:"#9ca3af",marginTop:8,textAlign:"center"}}>Feedback goes directly to the developer</div>
+    </div>
+    {feedbacks.length>0&&<div>
+      <div style={{fontWeight:500,marginBottom:10}}>All feedback ({feedbacks.length})</div>
+      {feedbacks.map(fb=><div key={fb.id} style={{background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"1rem",marginBottom:8}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8}}>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
+            <div style={{width:36,height:36,borderRadius:"50%",background:"#B5D4F4",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:500,fontSize:13,color:"#0C447C",flexShrink:0}}>{fb.name[0].toUpperCase()}</div>
+            <div><div style={{fontWeight:500,fontSize:14}}>{fb.name}</div><div style={{fontSize:11,color:"#9ca3af"}}>{fb.date}</div></div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+            <span style={{fontSize:11,padding:"2px 8px",borderRadius:20,background:fb.type==="bug"?"#FAECE7":fb.type==="suggestion"?"#EEEDFE":"#E6F1FB",color:fb.type==="bug"?"#993C1D":fb.type==="suggestion"?"#534AB7":"#185FA5"}}>{typeLabels[fb.type]}</span>
+            <span style={{color:"#BA7517",fontSize:14}}>{"★".repeat(fb.rating)}{"☆".repeat(5-fb.rating)}</span>
+          </div>
         </div>
-        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-          {[["Risk",opt.risk],["Returns",opt.returns],["Horizon",opt.horizon]].map(([k,v])=><div key={k} style={{background:"#f0f4f8",borderRadius:6,padding:"4px 10px"}}>
-            <span style={{fontSize:11,color:"#9ca3af"}}>{k}: </span>
-            <span style={{fontSize:12,fontWeight:500,color:"#1a1a1a"}}>{v}</span>
-          </div>)}
-        </div>
-      </div>;
-    })}
+        <div style={{fontSize:13,color:"#374151",lineHeight:1.6,paddingLeft:46}}>{fb.message}</div>
+      </div>)}
+    </div>}
+  </div>;
+}
+
+// ── CALCULATORS TAB ──
+function Calculators(){
+  const[calc,setCalc]=useState("sip");
+  return <div>
+    <div style={{display:"flex",gap:8,marginBottom:"1rem",background:"#fff",borderRadius:12,border:"0.5px solid #dde3ea",padding:"0.75rem"}}>
+      {[["sip","SIP"],["ppf","PPF"],["corpus","Corpus"]].map(([v,l])=><button key={v} onClick={()=>setCalc(v)} style={{flex:1,padding:"8px",border:"0.5px solid",borderRadius:8,fontWeight:500,fontSize:13,background:calc===v?"#185FA5":"transparent",color:calc===v?"#fff":"#6b7280",borderColor:calc===v?"#185FA5":"#dde3ea"}}>{l}</button>)}
+    </div>
+    {calc==="sip"&&<SIPCalc/>}
+    {calc==="ppf"&&<PPFCalc/>}
+    {calc==="corpus"&&<CorpusCalc/>}
   </div>;
 }
 
@@ -317,7 +686,7 @@ function App(){
   const[tab,setTab]=useState("dashboard");
   const[state,setState]=useState(load);
   useEffect(()=>save(state),[state]);
-  const tabs=[{id:"dashboard",label:"Dashboard"},{id:"transactions",label:"Transactions"},{id:"members",label:"Family"},{id:"goals",label:"Goals"},{id:"invest",label:"Invest"}];
+  const tabs=[{id:"dashboard",label:"Dashboard"},{id:"transactions",label:"Transactions"},{id:"members",label:"Family"},{id:"goals",label:"Goals"},{id:"invest",label:"Invest"},{id:"calculators",label:"Calculators"},{id:"feedback",label:"Feedback"}];
   const totalIncome=useMemo(()=>state.transactions.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),[state.transactions]);
   const totalExpense=useMemo(()=>state.transactions.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0),[state.transactions]);
   const savings=totalIncome-totalExpense;
@@ -325,8 +694,8 @@ function App(){
     <div style={{background:"#185FA5",padding:"1.25rem 1.5rem 0",color:"#fff"}}>
       <div style={{fontSize:20,fontWeight:500,marginBottom:4}}>MoFolio</div>
       <div style={{fontSize:13,opacity:0.8,marginBottom:"1rem"}}>Personal & Family Finance</div>
-      <div style={{display:"flex",gap:4,overflowX:"auto"}}>
-        {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"#fff":"transparent",color:tab===t.id?"#185FA5":"#fff",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 16px",fontWeight:500,fontSize:13,whiteSpace:"nowrap",cursor:"pointer"}}>{t.label}</button>)}
+      <div style={{display:"flex",gap:4,overflowX:"auto",paddingBottom:1}}>
+        {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{background:tab===t.id?"#fff":"transparent",color:tab===t.id?"#185FA5":"#fff",border:"none",borderRadius:"8px 8px 0 0",padding:"8px 12px",fontWeight:500,fontSize:12,whiteSpace:"nowrap",cursor:"pointer"}}>{t.label}</button>)}
       </div>
     </div>
     <div style={{padding:"1.25rem 1rem"}}>
@@ -335,6 +704,8 @@ function App(){
       {tab==="members"&&<Members state={state} setState={setState}/>}
       {tab==="goals"&&<Goals state={state} setState={setState} savings={savings}/>}
       {tab==="invest"&&<Invest savings={savings}/>}
+      {tab==="calculators"&&<Calculators/>}
+      {tab==="feedback"&&<Feedback state={state} setState={setState}/>}
     </div>
   </div>;
 }
